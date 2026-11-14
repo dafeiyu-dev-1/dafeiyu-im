@@ -1016,7 +1016,7 @@ struct Index {
       this.pausedId = '';
       this.voicePos = 0;
       this.voiceDurMs = m.audioMs ?? 0;
-      this.avPlayer.url = `${this.client.baseUrl()}${m.audio}`;
+      this.avPlayer.url = this.client.mediaUrl(m.audio);
     } catch (e) {
       const err = e as BusinessError;
       console.error(`[VOICE] play failed ${err.code} ${err.message}`);
@@ -1377,7 +1377,12 @@ struct Index {
     }
     this.loadingOlder = true;
     const oldest = this.messages[0].ts;
-    const page = await this.client.loadHistory(this.current, 50, oldest);
+    const tid = this.current;
+    const page = await this.client.loadHistory(tid, 50, oldest);
+    if (this.current !== tid) {
+      this.loadingOlder = false;
+      return;
+    }
     if (page.list.length > 0) {
       this.messages = page.list.concat(this.messages);
       const keep = page.list.length;
@@ -1709,7 +1714,7 @@ struct Index {
       caret = this.inlineOrder.length + this.inputText.length;
     }
     try {
-      this.richCtrl.addImageSpan(`${this.client.baseUrl()}/stickers/${encodeURIComponent(file)}`, {
+      this.richCtrl.addImageSpan(this.client.mediaUrl(`/stickers/${encodeURIComponent(file)}`), {
         offset: caret,
         imageStyle: { size: [19, 19] }
       });
@@ -2279,7 +2284,7 @@ struct Index {
         .width('100%')
         .padding({ left: 16, right: 16, top: 11, bottom: 11 })
         .onClick(() => {
-          this.openPreview(`${this.client.baseUrl()}${m.image}`);
+          this.openPreview(this.client.mediaUrl(m.image ?? ''));
         })
       Divider().strokeWidth(0.5).color('#EEEEEE')
       Text('引用')
@@ -2455,7 +2460,7 @@ struct Index {
           Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Baseline }) {
             ForEach(this.richRuns(line), (p: RichPart, i: number) => {
               if (p.kind === 'img') {
-                Image(`${this.client.baseUrl()}/stickers/${encodeURIComponent(p.value)}`)
+                Image(this.client.mediaUrl(`/stickers/${encodeURIComponent(p.value)}`))
                   .width(19)
                   .height(19)
                   .objectFit(ImageFit.Contain)
@@ -2758,7 +2763,7 @@ struct Index {
           (st: StickerItem) => {
             GridItem() {
               Stack({ alignContent: Alignment.TopEnd }) {
-                Image(`${this.client.baseUrl()}/stickers/${encodeURIComponent(st.file)}`)
+                Image(this.client.mediaUrl(`/stickers/${encodeURIComponent(st.file)}`))
                   .width(this.stickerTab === 'pack' ? 54 : 40)
                   .height(this.stickerTab === 'pack' ? 54 : 40)
                   .objectFit(ImageFit.Contain)
@@ -3443,23 +3448,23 @@ struct Index {
                 } else {
                 Column({ space: 6 }) {
                   if (m.sticker) {
-                    Image(`${this.client.baseUrl()}/stickers/${encodeURIComponent(m.sticker ?? '')}`)
+                    Image(this.client.mediaUrl(`/stickers/${encodeURIComponent(m.sticker ?? '')}`))
                       .width(178)
                       .constraintSize({ maxHeight: 240 })
                       .objectFit(ImageFit.Contain)
                       .onClick(() => {
-                        this.openPreview(`${this.client.baseUrl()}/stickers/${encodeURIComponent(m.sticker ?? '')}`);
+                        this.openPreview(this.client.mediaUrl(`/stickers/${encodeURIComponent(m.sticker ?? '')}`));
                       })
                   }
                   if (m.image) {
-                    Image(`${this.client.baseUrl()}${m.image}`)
+                    Image(this.client.mediaUrl(m.image ?? ''))
                       .width(160)
                       .constraintSize({ maxHeight: 240 })
                       .borderRadius(12)
                       .objectFit(ImageFit.Contain)
                       .backgroundColor('#F1F1F1')
                       .onClick(() => {
-                        this.openPreview(`${this.client.baseUrl()}${m.image}`);
+                        this.openPreview(this.client.mediaUrl(m.image ?? ''));
                       })
                       .bindContextMenu(this.imgMenu(m), ResponseType.LongPress)
                   }

@@ -178,6 +178,15 @@ export class ChatClient {
     return u;
   }
 
+  /** 图片/语音/表情这类静态资源的地址：服务端要求带 token */
+  mediaUrl(p: string): string {
+    if (!p || p.length === 0) {
+      return '';
+    }
+    const sep = p.indexOf('?') >= 0 ? '&' : '?';
+    return `${this.baseUrl()}${p}${sep}token=${encodeURIComponent(Config.TOKEN)}`;
+  }
+
   private async request(
     method: http.RequestMethod,
     path: string,
@@ -204,6 +213,10 @@ export class ChatClient {
         readTimeout: 15000,
       };
       const res = await req.request(`${this.baseUrl()}${path}`, opts);
+      const code = Number(res.responseCode);
+      if (!(code >= 200 && code < 300)) {
+        throw new Error(`HTTP ${code}: ${String(res.result).slice(0, 160)}`);
+      }
       return String(res.result);
     } finally {
       req.destroy();

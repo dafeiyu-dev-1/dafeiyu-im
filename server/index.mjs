@@ -10,7 +10,11 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 const PORT = Number(process.env.IM_PORT || 8787);
-const TOKEN = process.env.IM_TOKEN || 'change-me';
+const TOKEN = String(process.env.IM_TOKEN || '').trim();
+if (!TOKEN || TOKEN === 'change-me') {
+  console.error('拒绝启动：请先设置环境变量 IM_TOKEN（不要用 change-me），例如 IM_TOKEN=一长串随机字符');
+  process.exit(1);
+}
 const DATA_DIR = path.join(import.meta.dirname, 'data');
 const MSG_FILE = path.join(DATA_DIR, 'messages.jsonl');
 const THREAD_FILE = path.join(DATA_DIR, 'threads.json');
@@ -585,6 +589,51 @@ function readBody(req, limit = 25 * 1024 * 1024) {
   });
 }
 
+/** JPEG：丢掉 APP0..APP15（EXIF/ICC/注释都在这些段里），其余原样保留 */
+function stripJpegMeta(buf) {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return buf;
+  const out = [buf.subarray(0, 2)];
+  let i = 2;
+  while (i + 4 <= buf.length) {
+    if (buf[i] !== 0xff) return buf;
+    const marker = buf[i + 1];
+    if (marker === 0xda || marker === 0xd9) { out.push(buf.subarray(i)); return Buffer.concat(out); }
+    const len = buf.readUInt16BE(i + 2);
+    if (len < 2 || i + 2 + len > buf.length) return buf;
+    const isApp = marker >= 0xe0 && marker <= 0xef;
+    if (!isApp) out.push(buf.subarray(i, i + 2 + len));
+    i += 2 + len;
+  }
+  return buf;
+}
+
+/** PNG：丢掉 eXIf / tEXt / iTXt / zTXt / tIME 这些携带元数据的块 */
+function stripPngMeta(buf) {
+  const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(SIG)) return buf;
+  const drop = new Set(['eXIf', 'tEXt', 'iTXt', 'zTXt', 'tIME']);
+  const parts = [buf.subarray(0, 8)];
+  let i = 8;
+  while (i + 12 <= buf.length) {
+    const len = buf.readUInt32BE(i);
+    const type = buf.toString('latin1', i + 4, i + 8);
+    const end = i + 12 + len;
+    if (end > buf.length) return buf;
+    if (!drop.has(type)) parts.push(buf.subarray(i, end));
+    i = end;
+    if (type === 'IEND') break;
+  }
+  return Buffer.concat(parts);
+}
+
+function stripImageMeta(buf, ext) {
+  try {
+    if (ext === 'jpg' || ext === 'jpeg') return stripJpegMeta(buf);
+    if (ext === 'png') return stripPngMeta(buf);
+  } catch {}
+  return buf;
+}
+
 const EXT_BY_TYPE = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -627,8 +676,12 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, clients: clients.size, count: messages.length, threads: threads.length });
   }
 
-  // 图片文件：手机端 <Image> 直接拿，带 token 也行，不带也行（只读静态图）
+  // 图片/语音文件：必须带 ?token=（手机端 Image 也走这个；不带直接 401）
   if (u.pathname.startsWith('/files/') && req.method === 'GET') {
+    if (u.searchParams.get('token') !== TOKEN) {
+      res.writeHead(401);
+      return res.end('unauthorized');
+    }
     const name = path.basename(u.pathname.slice('/files/'.length));
     if (!name || name === '.' || name === '..') {
       res.writeHead(404);
@@ -660,8 +713,12 @@ const server = http.createServer(async (req, res) => {
     return rs.pipe(res);
   }
 
-  // 表情包图片：手机端 <Image> 直接取
+  // 表情包图片：同样必须带 ?token=
   if (u.pathname.startsWith('/stickers/') && req.method === 'GET') {
+    if (u.searchParams.get('token') !== TOKEN) {
+      res.writeHead(401);
+      return res.end('unauthorized');
+    }
     let name = path.basename(u.pathname.slice('/stickers/'.length));
     try {
       name = decodeURIComponent(name);
@@ -810,6 +867,12 @@ const server = http.createServer(async (req, res) => {
     if (i < 0) return json(res, 404, { ok: false, error: 'no such thread' });
     threads.splice(i, 1);
     saveThreads();
+    // 连带清掉这个会话的消息
+    const keep = messages.filter((m) => m.threadId !== id);
+    const removed = messages.length - keep.length;
+    messages.length = 0;
+    messages.push(...keep);
+    rewrite();
     broadcast({ type: 'threads', list: threads });
     return json(res, 200, { ok: true });
   }
@@ -825,14 +888,16 @@ const server = http.createServer(async (req, res) => {
       const ext = sniffImageExt(buf) || sniffAudioExt(buf) || EXT_BY_TYPE[type];
       if (!ext) return json(res, 415, { ok: false, error: '只收图片和语音' });
       // 内容寻址：同名文件即同一份内容，重复上传不再落盘
-      const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+      // 落盘前剥掉 EXIF / 文本块
+      const clean = stripImageMeta(buf, ext);
+      const hash = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 16);
       const name = `${hash}.${ext}`;
       const full = path.join(UP_DIR, name);
       if (fs.existsSync(full)) {
-        return json(res, 200, { ok: true, path: `/files/${name}`, bytes: buf.length, deduped: true });
+        return json(res, 200, { ok: true, path: `/files/${name}`, bytes: clean.length, deduped: true });
       }
-      fs.writeFileSync(full, buf);
-      return json(res, 200, { ok: true, path: `/files/${name}`, bytes: buf.length, deduped: false });
+      fs.writeFileSync(full, clean);
+      return json(res, 200, { ok: true, path: `/files/${name}`, bytes: clean.length, deduped: false });
     } catch (e) {
       return json(res, 400, { ok: false, error: String(e.message || e) });
     }
@@ -1034,8 +1099,12 @@ const server = http.createServer(async (req, res) => {
         const imgBase = pushImageBase();
         let imageUrl = '';
         if (imgBase) {
-          if (sticker) imageUrl = `${imgBase}/stickers/${encodeURIComponent(path.basename(sticker))}`;
-          else if (image && image.startsWith('/files/')) imageUrl = `${imgBase}${image}`;
+          const qt = `token=${encodeURIComponent(TOKEN)}`;
+          if (sticker) {
+            imageUrl = `${imgBase}/stickers/${encodeURIComponent(path.basename(sticker))}?${qt}`;
+          } else if (image && image.startsWith('/files/')) {
+            imageUrl = `${imgBase}${image}?${qt}`;
+          }
         }
         void sendPush(`大肥鱼 · ${t ? t.name : '聊天'}`, preview, threadId, imageUrl);
       }
@@ -1268,13 +1337,19 @@ process.on('unhandledRejection', (reason) => {
   console.log(new Date().toISOString(), 'unhandledRejection:', String((reason && reason.stack) || reason).slice(0, 400));
 });
 process.on('uncaughtException', (err) => {
-  console.log(new Date().toISOString(), 'uncaughtException:', String((err && err.stack) || err).slice(0, 400));
+  const msg = String((err && err.stack) || err).slice(0, 400);
+  console.log(new Date().toISOString(), 'uncaughtException:', msg);
+  if (err && (err.code === 'EADDRINUSE' || err.code === 'EACCES')) {
+    console.log(new Date().toISOString(), 'fatal listen error, exiting');
+    process.exit(1);
+  }
 });
 
 loadThreads();
 loadHistory();
 seedStickers();
-server.listen(PORT, () => {
+const BIND_ADDR = process.env.IM_BIND || '127.0.0.1';
+server.listen(PORT, BIND_ADDR, () => {
   console.log(
     `dafeiyu-im server on :${PORT} (ws /ws, ${threads.length} threads, ${stickerList.length} stickers, token ${TOKEN})`,
   );
