@@ -138,7 +138,7 @@ export class ChatClient {
   /** 应用是否在前台（默认按前台算，切后台时由 EntryAbility 通知） */
   private fg: boolean = true;
   private ws: webSocket.WebSocket | null = null;
-  /** 当前实际使用的入口，默认 Config 里那个；连不上时用 ntfy 上公布的新地址覆盖 */
+  /** 当前实际使用的入口，就是 Config 里配的那个 */
   serverUrl: string = Config.SERVER_URL;
   private reconnectTimer: number = -1;
   /** 连上之后多久还没 open 就认定卡住，掐掉重来 */
@@ -345,45 +345,6 @@ export class ChatClient {
       return obj.ok === true;
     } catch (e) {
       return false;
-    }
-  }
-
-  /**
-   * 从 ntfy 公告栏取当前入口（隧道重启后地址会变，PC 上的脚本会自动更新这条）。
-   * 取不到就沿用现有地址。
-   */
-  async refreshUrl(): Promise<void> {
-    const url = 'https://ntfy.sh/dafeiyu-66d4b2a7c1f9/json?poll=1&since=all';
-    const req = http.createHttp();
-    try {
-      const opts: http.HttpRequestOptions = {
-        method: http.RequestMethod.GET,
-        header: { 'bypass-tunnel-reminder': 'true' },
-        expectDataType: http.HttpDataType.STRING,
-        connectTimeout: 8000,
-        readTimeout: 8000,
-      };
-      const res = await req.request(url, opts);
-      const txt = String(res.result);
-      const lines = txt.split('\n');
-      let found: string = '';
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.indexOf('wss://') < 0) {
-          continue;
-        }
-        const m = line.match(/wss:\/\/[^"\\]+\/ws/);
-        if (m && m.length > 0) {
-          found = m[0];
-        }
-      }
-      if (found.length > 0) {
-        this.serverUrl = `${found}?token=${Config.TOKEN}`;
-      }
-    } catch (e) {
-      // 取不到就用旧的
-    } finally {
-      req.destroy();
     }
   }
 

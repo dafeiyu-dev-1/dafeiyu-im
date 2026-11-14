@@ -433,14 +433,12 @@ struct Index {
     setTimeout(() => {
       startConnect();
     }, 2500);
-    this.client.refreshUrl().then(() => {
-      startConnect();
-      this.client.loadWorkspaces().then((list: WorkspaceOption[]) => {
-        this.workspaces = list;
-      });
-      this.client.loadStickers().then((list: StickerItem[]) => {
-        this.stickers = list;
-      });
+    startConnect();
+    this.client.loadWorkspaces().then((list: WorkspaceOption[]) => {
+      this.workspaces = list;
+    });
+    this.client.loadStickers().then((list: StickerItem[]) => {
+      this.stickers = list;
     });
   }
 

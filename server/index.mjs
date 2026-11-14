@@ -572,7 +572,15 @@ function readBody(req, limit = 25 * 1024 * 1024) {
       }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      const ct = String((req.headers && req.headers['content-type']) || '');
+      if (buf.length === 0 && ct.indexOf('json') >= 0) {
+        resolve(Buffer.from('{}'));
+        return;
+      }
+      resolve(buf);
+    });
     req.on('error', reject);
   });
 }
@@ -601,7 +609,17 @@ function sniffAudioExt(b) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const u = new URL(req.url, 'http://x');
+  let u;
+  try {
+    u = new URL(req.url || '/', 'http://x');
+  } catch {
+    try {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'bad request target' }));
+    } catch {}
+    return;
+  }
+  try {
   if (!u.pathname.startsWith('/files/')) console.log(new Date().toISOString(), req.method, u.pathname);
 
   // 健康检查免鉴权
@@ -612,8 +630,18 @@ const server = http.createServer(async (req, res) => {
   // 图片文件：手机端 <Image> 直接拿，带 token 也行，不带也行（只读静态图）
   if (u.pathname.startsWith('/files/') && req.method === 'GET') {
     const name = path.basename(u.pathname.slice('/files/'.length));
+    if (!name || name === '.' || name === '..') {
+      res.writeHead(404);
+      return res.end('not found');
+    }
     const p = path.join(UP_DIR, name);
-    if (!p.startsWith(UP_DIR) || !fs.existsSync(p)) {
+    let st;
+    try {
+      st = fs.statSync(p);
+    } catch {
+      st = null;
+    }
+    if (!p.startsWith(UP_DIR) || !st || !st.isFile()) {
       res.writeHead(404);
       return res.end('not found');
     }
@@ -623,7 +651,13 @@ const server = http.createServer(async (req, res) => {
       ? AUDIO_TYPES[ext]
       : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
     res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=31536000' });
-    return fs.createReadStream(p).pipe(res);
+    const rs = fs.createReadStream(p);
+    rs.on('error', () => {
+      try {
+        res.destroy();
+      } catch {}
+    });
+    return rs.pipe(res);
   }
 
   // 表情包图片：手机端 <Image> 直接取
@@ -635,7 +669,13 @@ const server = http.createServer(async (req, res) => {
       // 已经是原文就原样用
     }
     const p = stickerFiles.get(name) ?? path.join(STICKER_DIR, name);
-    if (!isSticker(name) || !fs.existsSync(p)) {
+    let st2;
+    try {
+      st2 = fs.statSync(p);
+    } catch {
+      st2 = null;
+    }
+    if (!name || !isSticker(name) || !st2 || !st2.isFile()) {
       res.writeHead(404);
       return res.end('not found');
     }
@@ -643,7 +683,13 @@ const server = http.createServer(async (req, res) => {
     const type =
       ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
     res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=31536000' });
-    return fs.createReadStream(p).pipe(res);
+    const rs2 = fs.createReadStream(p);
+    rs2.on('error', () => {
+      try {
+        res.destroy();
+      } catch {}
+    });
+    return rs2.pipe(res);
   }
 
   if (!authorized(req)) return json(res, 401, { ok: false, error: 'unauthorized' });
@@ -1060,6 +1106,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   json(res, 404, { ok: false, error: 'not found' });
+  } catch (e) {
+    // 兜底：任何未预料的异常都不许把进程带走
+    console.log(new Date().toISOString(), 'handler error:', String((e && e.stack) || e).slice(0, 400));
+    try {
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'internal error' }));
+    } catch {}
+  }
 });
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -1207,6 +1261,14 @@ wss.on('connection', (ws, req) => {
     clients.delete(ws);
     console.log(new Date().toISOString(), 'ws error', String((e && e.message) || e).slice(0, 120), 'clients =', clients.size);
   });
+});
+
+// 兜底：服务常驻比「崩了再起」重要，任何未捕获的异常都只记日志
+process.on('unhandledRejection', (reason) => {
+  console.log(new Date().toISOString(), 'unhandledRejection:', String((reason && reason.stack) || reason).slice(0, 400));
+});
+process.on('uncaughtException', (err) => {
+  console.log(new Date().toISOString(), 'uncaughtException:', String((err && err.stack) || err).slice(0, 400));
 });
 
 loadThreads();
