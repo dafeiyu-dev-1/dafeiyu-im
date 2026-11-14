@@ -6,6 +6,8 @@
 
 > 仓库里所有个人信息、密钥、私有路径都已清掉或改成配置项；**应用图标、头像、角色立绘全部是占位图**（浅蓝底 + IM / PLACEHOLDER），可自由替换。
 
+**预编译包**：见 [Releases](https://github.com/dafeiyu-dev-1/dafeiyu-im/releases)。最新为 `v1.2.64`（未签名 HAP，占位图；签名方法与安装步骤见 Release 说明与 [docs/SETUP.md](docs/SETUP.md)）。
+
 ## 目录
 
 - [能做什么](#能做什么)
