@@ -1,0 +1,32 @@
+# --- 构建产物 ---
+build/
+.gradle/
+preview/
+*.hap
+*.hsp
+*.har
+oh_modules/
+node_modules/
+.hvigor/
+hvigor/.hvigor/
+
+# --- 本机配置（不要提交） ---
+local.properties
+server/.env.cmd
+server/data/
+bridge/config.json
+bridge/config.local.json
+
+# --- 运行时数据 ---
+*.log
+*.bak
+*.tmp
+uploads/
+stickers/
+!entry/src/main/resources/base/media/*.png
+
+# --- 编辑器/系统 ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
