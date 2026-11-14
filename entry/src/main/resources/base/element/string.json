@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "大肥鱼聊天" },
+    { "name": "EntryAbility_desc", "value": "大肥鱼" },
+    { "name": "EntryAbility_label", "value": "大肥鱼" },
+    { "name": "mic_reason", "value": "按住说话时要用麦克风录一段语音" }
+  ]
+}

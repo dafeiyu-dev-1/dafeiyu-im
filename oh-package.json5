@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "dafeiyu-im",
+  "version": "1.0.0",
+  "description": "大肥鱼 IM 客户端",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {},
+  "devDependencies": {}
+}
