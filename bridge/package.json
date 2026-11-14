@@ -1,0 +1,13 @@
+{
+  "name": "dsh-im-bridge",
+  "version": "0.1.0",
+  "description": "把手机 IM（dafeiyu-im）接进她的会话：消息投递 + im_send 回复工具",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "files": [ "index.js", "cordis.patch.yml" ],
+  "engines": { "node": ">=24.0.0" },
+  "peerDependencies": { "@deepseek-ai/dsh-tools": "*" },
+  "peerDependenciesMeta": { "@deepseek-ai/dsh-tools": { "optional": true } },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
